@@ -10,6 +10,23 @@ const claude = require('./src/claude');
 const prompts = require('./src/prompts');
 
 const app = express();
+
+// Optionaler Passwortschutz (Basic Auth) für öffentliche Deployments.
+// Nur aktiv, wenn APP_PASSWORD gesetzt ist – lokal ohne Passwort nutzbar.
+const APP_PASSWORD = process.env.APP_PASSWORD;
+if (APP_PASSWORD) {
+  app.use((req, res, next) => {
+    const auth = req.headers.authorization || '';
+    const [scheme, encoded] = auth.split(' ');
+    if (scheme === 'Basic' && encoded) {
+      const [, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+      if (pass === APP_PASSWORD) return next();
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Lernassistent"');
+    res.status(401).send('Authentifizierung erforderlich.');
+  });
+}
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
