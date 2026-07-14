@@ -1,24 +1,55 @@
-/* ---------- Grundlagen ---------- */
+/* ---------- Grundlagen (Dark-Mode-First) ---------- */
 :root {
-  --bg: #f4f6fb;
-  --card: #ffffff;
-  --ink: #1c2333;
-  --muted: #66708a;
-  --line: #e4e8f2;
-  --accent: #4f46e5;
-  --accent-soft: #eef0ff;
-  --sky: #0284c7;
-  --sky-soft: #e3f3fd;
-  --ok: #16a34a;
-  --ok-soft: #e8f7ee;
-  --warn: #d97706;
-  --warn-soft: #fdf2e3;
-  --err: #dc2626;
-  --err-soft: #fdeaea;
-  --violet: #7c3aed;
-  --violet-soft: #f1eafd;
+  --bg: #0f1218;
+  --bg-raised: #161a23;
+  --card: #1a1f2b;
+  --ink: #e7eaf2;
+  --muted: #8b93a8;
+  --line: #2a3040;
+  --accent: #7c7ff2;
+  --accent-soft: #23253f;
+  --accent-ink: #fff;
+  --sky: #38bdf8;
+  --sky-soft: #10283a;
+  --ok: #4ade80;
+  --ok-soft: #113322;
+  --warn: #fbbf24;
+  --warn-soft: #3a2c0d;
+  --err: #f87171;
+  --err-soft: #3a1414;
+  --violet: #c4b5fd;
+  --violet-soft: #2a1f45;
+  --input-bg: #12151d;
   --radius: 14px;
-  --shadow: 0 1px 3px rgba(28, 35, 51, 0.06), 0 6px 20px rgba(28, 35, 51, 0.05);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6fb;
+    --bg-raised: #ffffff;
+    --card: #ffffff;
+    --ink: #1c2333;
+    --muted: #66708a;
+    --line: #e4e8f2;
+    --accent: #4f46e5;
+    --accent-soft: #eef0ff;
+    --accent-ink: #fff;
+    --sky: #0284c7;
+    --sky-soft: #e3f3fd;
+    --ok: #16a34a;
+    --ok-soft: #e8f7ee;
+    --warn: #d97706;
+    --warn-soft: #fdf2e3;
+    --err: #dc2626;
+    --err-soft: #fdeaea;
+    --violet: #7c3aed;
+    --violet-soft: #f1eafd;
+    --input-bg: #ffffff;
+    --shadow: 0 1px 3px rgba(28, 35, 51, 0.06), 0 6px 20px rgba(28, 35, 51, 0.05);
+    color-scheme: light;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -151,7 +182,7 @@ input[type="text"], input[type="date"], input[type="number"], input[type="passwo
   border-radius: 10px;
   font-size: 14.5px;
   font-family: inherit;
-  background: #fff;
+  background: var(--input-bg);
   color: var(--ink);
 }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -174,6 +205,26 @@ textarea { resize: vertical; min-height: 70px; }
 .badge.neutral { background: var(--bg); color: var(--muted); }
 
 .progress { height: 8px; background: var(--bg); border-radius: 99px; overflow: hidden; }
+
+/* ---------- Abitur-Dashboard ---------- */
+.abi-dash { background: linear-gradient(160deg, var(--card), var(--bg-raised)); }
+.abi-milestones { margin-bottom: 20px; }
+.abi-tile {
+  text-align: center;
+  padding: 14px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+.abi-num { font-size: 26px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
+.abi-label { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+@media (max-width: 900px) { .abi-milestones { grid-template-columns: 1fr; } }
+
+.lf-list { display: flex; flex-direction: column; gap: 10px; }
+.lf-row { display: flex; align-items: center; gap: 12px; }
+.lf-name { width: 84px; flex-shrink: 0; font-weight: 650; font-size: 13.5px; }
+.lf-row .progress { flex: 1; }
+.lf-pct { width: 40px; flex-shrink: 0; text-align: right; font-size: 13px; font-weight: 700; color: var(--muted); }
 .progress > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.4s; }
 .progress.green > div { background: var(--ok); }
 
@@ -194,7 +245,7 @@ textarea { resize: vertical; min-height: 70px; }
   border: 1px solid var(--line);
   border-radius: 12px;
   margin-bottom: 8px;
-  background: #fff;
+  background: var(--card);
 }
 .session-item.done { opacity: 0.55; }
 .session-item.done .s-title { text-decoration: line-through; }
@@ -232,7 +283,7 @@ textarea { resize: vertical; min-height: 70px; }
   border: 1px solid var(--line);
   border-radius: 12px;
   margin-bottom: 10px;
-  background: #fff;
+  background: var(--card);
   cursor: pointer;
   transition: border-color 0.15s;
 }
@@ -275,7 +326,7 @@ textarea { resize: vertical; min-height: 70px; }
 .md hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
 
 /* ---------- Quiz ---------- */
-.q-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; background: #fff; }
+.q-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; background: var(--card); }
 .q-num { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
 .q-text { font-weight: 600; margin-bottom: 12px; }
 .q-option {
@@ -329,7 +380,7 @@ textarea { resize: vertical; min-height: 70px; }
 .chat-log { flex: 1; overflow-y: auto; padding: 4px 2px 12px; display: flex; flex-direction: column; gap: 12px; }
 .chat-msg { max-width: 82%; padding: 11px 15px; border-radius: 16px; }
 .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
-.chat-msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+.chat-msg.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
 .chat-msg.user a { color: #fff; text-decoration: underline; }
 .chat-input { display: flex; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .chat-input textarea { flex: 1; min-height: 44px; max-height: 140px; }

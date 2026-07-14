@@ -219,6 +219,7 @@ async function renderHome() {
       <div class="sub">${fmtDateLong(today.today)}</div>
     </div>
     ${keyNotice}
+    ${state.exams.length ? abiturDashboardHtml(state.exams) : ''}
     ${state.exams.length ? `
       <div class="card"><h2>📅 Heute auf dem Plan</h2>${sessionsHtml}</div>
       <div class="card"><h2>🧠 Gedächtnis-Auffrischung</h2>${reviewsHtml}</div>
@@ -266,6 +267,57 @@ function examCardHtml(e) {
         <div class="meta mt" style="display:flex;justify-content:space-between;margin-top:8px"><span>Beherrschung</span><span>${e.mastery}%</span></div>
         <div class="progress green"><div style="width:${e.mastery}%"></div></div>`
       : '<span class="badge neutral">Noch kein Lernplan</span>'}
+    </div>`;
+}
+
+const LEISTUNGSFAECHER = ['Mathe', 'Englisch', 'Sport'];
+
+function matchesSubject(examSubject, name) {
+  const s = (examSubject || '').toLowerCase();
+  if (name === 'Mathe') return s.includes('mathe');
+  if (name === 'Englisch') return s.includes('englisch');
+  return s.includes('sport');
+}
+
+function abiturDashboardHtml(exams) {
+  const subjectRows = LEISTUNGSFAECHER.map((name) => {
+    const matching = exams.filter((e) => matchesSubject(e.subject, name));
+    const withPlan = matching.filter((e) => e.hasPlan);
+    const avgMastery = withPlan.length
+      ? Math.round(withPlan.reduce((a, e) => a + e.mastery, 0) / withPlan.length)
+      : 0;
+    return `
+      <div class="lf-row">
+        <div class="lf-name">${esc(name)}</div>
+        <div class="progress"><div style="width:${avgMastery}%"></div></div>
+        <div class="lf-pct">${matching.length ? `${avgMastery}%` : '–'}</div>
+      </div>`;
+  }).join('');
+
+  const withPlan = exams.filter((e) => e.hasPlan);
+  const overallMastery = withPlan.length
+    ? Math.round(withPlan.reduce((a, e) => a + e.mastery, 0) / withPlan.length)
+    : 0;
+  const upcoming = exams.filter((e) => e.daysLeft >= 0).sort((a, b) => a.daysLeft - b.daysLeft)[0];
+
+  return `
+    <div class="card abi-dash">
+      <h2>🎓 Abitur 1.3 Dashboard</h2>
+      <div class="grid cols-3 abi-milestones">
+        <div class="abi-tile">
+          <div class="abi-num">${overallMastery}%</div>
+          <div class="abi-label">Ø Beherrschung gesamt</div>
+        </div>
+        <div class="abi-tile">
+          <div class="abi-num">${withPlan.length}/${exams.length}</div>
+          <div class="abi-label">Klausuren mit Lernplan</div>
+        </div>
+        <div class="abi-tile">
+          <div class="abi-num">${upcoming ? (upcoming.daysLeft === 0 ? '🔥' : upcoming.daysLeft) : '–'}</div>
+          <div class="abi-label">${upcoming ? `Tage bis „${esc(upcoming.title)}"` : 'Keine Klausur geplant'}</div>
+        </div>
+      </div>
+      <div class="lf-list">${subjectRows}</div>
     </div>`;
 }
 
