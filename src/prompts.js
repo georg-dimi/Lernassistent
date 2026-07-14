@@ -227,7 +227,7 @@ Antworte mit genau diesem JSON-Schema:
   "modelSolution": "Die vollständige Musterlösung auf 13-15 Punkte-Niveau",
   "maxPoints": 15
 }`,
-    maxTokens: 4096,
+    maxTokens: 8192,
   };
 }
 
