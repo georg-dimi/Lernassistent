@@ -152,7 +152,7 @@ function markActiveNav() {
   const hash = location.hash || '#/';
   document.querySelectorAll('.sidebar a[data-nav]').forEach((a) => {
     a.classList.toggle('active', a.getAttribute('href') === hash ||
-      (a.dataset.nav.startsWith('exam-') && hash.startsWith(a.getAttribute('href'))));
+      ((a.dataset.nav.startsWith('exam-') || a.dataset.nav === 'abi-trainer') && hash.startsWith(a.getAttribute('href'))));
   });
 }
 
@@ -168,6 +168,7 @@ async function route() {
     if (parts.length === 0) return await renderHome();
     if (parts[0] === 'neu') return renderNew();
     if (parts[0] === 'einstellungen') return renderSettings();
+    if (parts[0] === 'abi-trainer') return await renderAbiTrainer(parts[1] || 'Mathe');
     if (parts[0] === 'klausur' && parts[1] && parts[2] === 'thema' && parts[3]) {
       return await renderTopic(parts[1], parts[3], parts[4] || 'lernen');
     }
@@ -846,6 +847,152 @@ function renderChatTab(el, exam, topic) {
 
 function chatMsgHtml(m) {
   return `<div class="chat-msg ${m.role}">${m.role === 'assistant' ? `<div class="md">${md(m.content)}</div>` : esc(m.content)}</div>`;
+}
+
+/* ---------- Abi-Trainer ---------- */
+
+const ABI_SUBJECT_ICON = { Mathe: '📐', Englisch: '🇬🇧', Sport: '🏃' };
+let abiTask = null; // { subject, taskId, task, maxPoints, result }
+
+async function renderAbiTrainer(subject) {
+  loading();
+  const data = await api(`/api/abi-trainer/${subject}`);
+
+  if (!abiTask || abiTask.subject !== subject) abiTask = { subject, taskId: null, task: null, maxPoints: null, result: null };
+
+  const materialsHtml = (data.materials || []).map((m) => `
+    <div class="material-row">
+      <span>${m.kind === 'image' ? '🖼️' : '📄'}</span>
+      <span class="m-name">${esc(m.originalName)}</span>
+      <button class="btn small danger" data-del-material="${m.id}">✕</button>
+    </div>`).join('') || '<p class="meta">Noch keine Altklausuren hochgeladen.</p>';
+
+  const historyHtml = data.taskHistory.length
+    ? `<p class="meta">${data.taskHistory.length} Aufgabe${data.taskHistory.length === 1 ? '' : 'n'} bearbeitet ·
+        letzte: ${data.taskHistory[data.taskHistory.length - 1].points}/${data.taskHistory[data.taskHistory.length - 1].maxPoints} Punkte</p>`
+    : '<p class="meta">Noch keine Aufgabe bearbeitet.</p>';
+
+  view.innerHTML = `
+    <div class="page-head">
+      <h1>🎯 Abi-Trainer</h1>
+      <div class="sub">Eine Abituraufgabe auf Leistungsfach-Niveau, bewertet nach dem BW-Punkteschema (0–15 Punkte).</div>
+    </div>
+    <div class="tabs">
+      ${LEISTUNGSFAECHER.map((s) => `<button data-subject="${s}" class="${s === subject ? 'active' : ''}">${ABI_SUBJECT_ICON[s]} ${s}</button>`).join('')}
+    </div>
+
+    <div class="card">
+      <h2>📎 Altklausuren <span class="meta">(${data.materials.length})</span></h2>
+      <div class="dropzone" id="dropzone">
+        <div class="big">📤</div>
+        <strong>Dateien hierher ziehen oder klicken</strong><br>
+        <span class="meta">PDF, Word, PowerPoint, Fotos … z.B. vom STARK-Verlag</span>
+        <input type="file" id="fileInput" multiple hidden
+               accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.tex,.html,.jpg,.jpeg,.png,.gif,.webp">
+      </div>
+      <div class="mt">${materialsHtml}</div>
+    </div>
+
+    <div class="card">
+      <div class="actions"><h2 class="mb0">✍️ Trainingsaufgabe</h2><div class="spacer"></div></div>
+      ${historyHtml}
+      <div id="abiTaskArea" class="mt">${abiTaskAreaHtml()}</div>
+    </div>
+  `;
+
+  view.querySelectorAll('[data-subject]').forEach((b) => {
+    b.addEventListener('click', () => { location.hash = `#/abi-trainer/${b.dataset.subject}`; });
+  });
+
+  const dz = document.getElementById('dropzone');
+  const fi = document.getElementById('fileInput');
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); uploadAbiFiles(subject, e.dataTransfer.files); });
+  fi.addEventListener('change', () => uploadAbiFiles(subject, fi.files));
+
+  view.querySelectorAll('[data-del-material]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api(`/api/abi-trainer/${subject}/materials/${btn.dataset.delMaterial}`, { method: 'DELETE' });
+        renderAbiTrainer(subject);
+      } catch (err) { toast(err.message, true); }
+    });
+  });
+
+  bindAbiTaskArea(subject);
+}
+
+function abiTaskAreaHtml() {
+  if (abiTask.result) {
+    const r = abiTask.result;
+    return `
+      <div class="score-banner">
+        <div class="big">${r.points} / ${r.maxPoints} Punkte</div>
+      </div>
+      <div class="card md">${md(r.feedback)}</div>
+      <h3 class="mt">Musterlösung (13–15 Punkte-Niveau)</h3>
+      <div class="card md">${md(r.modelSolution)}</div>
+      <button class="btn primary mt" id="abiNewTask">🎯 Neue Aufgabe stellen</button>`;
+  }
+  if (abiTask.task) {
+    return `
+      <div class="card md">${md(abiTask.task)}</div>
+      <label class="field mt"><span>Deine Antwort</span>
+        <textarea id="abiAnswer" rows="8" placeholder="Schreibe hier deine vollständige Lösung …"></textarea>
+      </label>
+      <button class="btn primary" id="abiGrade" data-busy="Wird korrigiert …">✅ Bewerten lassen</button>`;
+  }
+  return `
+    <p class="meta">Stelle dir eine Abituraufgabe auf Leistungsfach-Niveau – vollständig, mit Musterlösung und Bewertung.</p>
+    <button class="btn primary" id="abiNewTask" data-busy="Claude erstellt deine Aufgabe …">🎯 Aufgabe stellen</button>`;
+}
+
+function bindAbiTaskArea(subject) {
+  const area = document.getElementById('abiTaskArea');
+  const newTaskBtn = document.getElementById('abiNewTask');
+  if (newTaskBtn) {
+    newTaskBtn.addEventListener('click', async (ev) => {
+      if (!appState.hasApiKey) {
+        toast('Bitte zuerst in den Einstellungen einen API-Schlüssel hinterlegen.', true);
+        location.hash = '#/einstellungen';
+        return;
+      }
+      await withBusy(ev.currentTarget, async () => {
+        const { taskId, task, maxPoints } = await api(`/api/abi-trainer/${subject}/task`, { method: 'POST', body: {} });
+        abiTask = { subject, taskId, task, maxPoints, result: null };
+        area.innerHTML = abiTaskAreaHtml();
+        bindAbiTaskArea(subject);
+      });
+    });
+  }
+  const gradeBtn = document.getElementById('abiGrade');
+  if (gradeBtn) {
+    gradeBtn.addEventListener('click', async (ev) => {
+      const answer = document.getElementById('abiAnswer').value.trim();
+      await withBusy(ev.currentTarget, async () => {
+        const result = await api(`/api/abi-trainer/${subject}/task/${abiTask.taskId}/grade`, { method: 'POST', body: { answer } });
+        abiTask = { ...abiTask, result };
+        await renderAbiTrainer(subject);
+      });
+    });
+  }
+}
+
+async function uploadAbiFiles(subject, files) {
+  if (!files || !files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  loading(`${files.length} Datei(en) werden hochgeladen und ausgelesen …`);
+  try {
+    const { warnings } = await api(`/api/abi-trainer/${subject}/materials`, { method: 'POST', body: fd });
+    for (const w of warnings || []) toast(w, true);
+    if (!warnings?.length) toast('Materialien hinzugefügt. ✅');
+  } catch (err) {
+    toast(err.message, true);
+  }
+  renderAbiTrainer(subject);
 }
 
 /* ---------- Einstellungen ---------- */

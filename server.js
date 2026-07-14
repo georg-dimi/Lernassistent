@@ -187,6 +187,39 @@ app.delete('/api/exams/:examId', (req, res) => {
 
 // ---------- Materialien ----------
 
+// Liest eine hochgeladene Datei aus und baut daraus ein Material-Objekt
+// (gemeinsame Logik für Klausur-Materialien und Abi-Trainer-Materialien).
+async function extractMaterial(file) {
+  const name = Buffer.from(file.originalname, 'latin1').toString('utf8');
+  const kind = extract.kindOf(name);
+  const material = {
+    id: store.uid(),
+    originalName: name,
+    storedName: file.filename,
+    kind,
+    text: '',
+    pending: false,
+    addedAt: new Date().toISOString(),
+  };
+  if (kind === 'image') {
+    if (claude.hasKey()) {
+      material.text = await claude.ask({
+        content: [extract.imageBlock(file.path, name), { type: 'text', text: prompts.imageExtractPrompt() }],
+        maxTokens: 4096,
+      });
+    } else {
+      material.pending = true; // wird bei der nächsten KI-Anfrage nachgeholt
+      return { material, warning: `${name}: Bild gespeichert – Textextraktion folgt, sobald ein API-Schlüssel hinterlegt ist.` };
+    }
+  } else if (kind === 'unknown') {
+    fs.rm(file.path, { force: true }, () => {});
+    return { material: null, warning: `${name}: Dateityp wird nicht unterstützt und wurde übersprungen.` };
+  } else {
+    material.text = await extract.extractText(file.path, name);
+  }
+  return { material };
+}
+
 app.post('/api/exams/:examId/materials', upload.array('files'), asyncRoute(async (req, res) => {
   const exam = requireExam(req);
   const added = [];
@@ -194,36 +227,13 @@ app.post('/api/exams/:examId/materials', upload.array('files'), asyncRoute(async
 
   for (const file of req.files || []) {
     const name = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const kind = extract.kindOf(name);
-    const material = {
-      id: store.uid(),
-      originalName: name,
-      storedName: file.filename,
-      kind,
-      text: '',
-      pending: false,
-      addedAt: new Date().toISOString(),
-    };
     try {
-      if (kind === 'image') {
-        if (claude.hasKey()) {
-          material.text = await claude.ask({
-            content: [extract.imageBlock(file.path, name), { type: 'text', text: prompts.imageExtractPrompt() }],
-            maxTokens: 4096,
-          });
-        } else {
-          material.pending = true; // wird bei der Planerstellung nachgeholt
-          warnings.push(`${name}: Bild gespeichert – Textextraktion folgt, sobald ein API-Schlüssel hinterlegt ist.`);
-        }
-      } else if (kind === 'unknown') {
-        warnings.push(`${name}: Dateityp wird nicht unterstützt und wurde übersprungen.`);
-        fs.rm(file.path, { force: true }, () => {});
-        continue;
-      } else {
-        material.text = await extract.extractText(file.path, name);
+      const { material, warning } = await extractMaterial(file);
+      if (warning) warnings.push(warning);
+      if (material) {
+        exam.materials.push(material);
+        added.push({ id: material.id, originalName: material.originalName, kind: material.kind, pending: material.pending });
       }
-      exam.materials.push(material);
-      added.push({ id: material.id, originalName: name, kind, pending: material.pending });
     } catch (err) {
       warnings.push(`${name}: ${err.message}`);
       fs.rm(file.path, { force: true }, () => {});
@@ -472,6 +482,124 @@ app.post('/api/exams/:examId/topics/:topicId/chat', asyncRoute(async (req, res) 
   topic.chat.push({ role: 'assistant', content: reply, at: new Date().toISOString() });
   store.save();
   res.json({ reply });
+}));
+
+// ---------- Abi-Trainer (STARK-Verlag-Stil, BW-Punkteschema) ----------
+
+function requireAbiSubject(req) {
+  const name = req.params.subject;
+  if (!store.ABI_SUBJECTS.includes(name)) {
+    const err = new Error('Unbekanntes Leistungsfach.');
+    err.status = 404;
+    throw err;
+  }
+  return name;
+}
+
+function abiSubjectSummary(name) {
+  const s = store.getAbiSubject(name);
+  const history = s.taskHistory || [];
+  const last = history[history.length - 1];
+  return {
+    subject: name,
+    materialCount: s.materials.length,
+    taskCount: history.length,
+    lastScore: last ? { points: last.points, maxPoints: last.maxPoints, date: last.date } : null,
+  };
+}
+
+const pendingAbiTasks = new Map(); // taskId -> { subject, task, modelSolution, maxPoints }
+
+app.get('/api/abi-trainer', (req, res) => {
+  res.json({ subjects: store.ABI_SUBJECTS.map(abiSubjectSummary) });
+});
+
+app.get('/api/abi-trainer/:subject', asyncRoute(async (req, res) => {
+  const name = requireAbiSubject(req);
+  const s = store.getAbiSubject(name);
+  res.json({ subject: name, materials: s.materials, taskHistory: s.taskHistory });
+}));
+
+app.post('/api/abi-trainer/:subject/materials', upload.array('files'), asyncRoute(async (req, res) => {
+  const name = requireAbiSubject(req);
+  const s = store.getAbiSubject(name);
+  const added = [];
+  const warnings = [];
+
+  for (const file of req.files || []) {
+    const fileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    try {
+      const { material, warning } = await extractMaterial(file);
+      if (warning) warnings.push(warning);
+      if (material) {
+        s.materials.push(material);
+        added.push({ id: material.id, originalName: material.originalName, kind: material.kind, pending: material.pending });
+      }
+    } catch (err) {
+      warnings.push(`${fileName}: ${err.message}`);
+      fs.rm(file.path, { force: true }, () => {});
+    }
+  }
+
+  store.save();
+  res.json({ added, warnings });
+}));
+
+app.delete('/api/abi-trainer/:subject/materials/:materialId', (req, res) => {
+  const name = req.params.subject;
+  if (!store.ABI_SUBJECTS.includes(name)) return res.status(404).json({ error: 'Unbekanntes Leistungsfach.' });
+  const s = store.getAbiSubject(name);
+  const idx = s.materials.findIndex((m) => m.id === req.params.materialId);
+  if (idx < 0) return res.status(404).json({ error: 'Material nicht gefunden.' });
+  const [m] = s.materials.splice(idx, 1);
+  if (m.storedName) fs.rm(path.join(store.UPLOAD_DIR, m.storedName), { force: true }, () => {});
+  store.save();
+  res.json({ ok: true });
+});
+
+app.post('/api/abi-trainer/:subject/task', asyncRoute(async (req, res) => {
+  const name = requireAbiSubject(req);
+  const s = store.getAbiSubject(name);
+
+  const data = await claude.askJSON(prompts.abiTaskPrompt(name, s.materials, s.taskHistory));
+  if (!data.task || !data.modelSolution) throw new Error('Aufgabe konnte nicht erstellt werden. Bitte erneut versuchen.');
+
+  const taskId = store.uid();
+  pendingAbiTasks.set(taskId, {
+    subject: name,
+    task: data.task,
+    modelSolution: data.modelSolution,
+    maxPoints: data.maxPoints || 15,
+    taskSummary: data.taskSummary || name,
+  });
+
+  res.json({ taskId, task: data.task, maxPoints: data.maxPoints || 15 });
+}));
+
+app.post('/api/abi-trainer/:subject/task/:taskId/grade', asyncRoute(async (req, res) => {
+  const name = requireAbiSubject(req);
+  const pending = pendingAbiTasks.get(req.params.taskId);
+  if (!pending || pending.subject !== name) {
+    const err = new Error('Aufgabe abgelaufen. Bitte eine neue Aufgabe stellen.');
+    err.status = 404;
+    throw err;
+  }
+  const answer = String(req.body.answer || '').trim();
+
+  const graded = await claude.askJSON(prompts.abiGradePrompt(name, pending.task, pending.modelSolution, answer));
+  const points = Math.max(0, Math.min(pending.maxPoints, Math.round(graded.points ?? 0)));
+
+  const s = store.getAbiSubject(name);
+  s.taskHistory.push({
+    date: todayStr(),
+    taskSummary: pending.taskSummary,
+    points,
+    maxPoints: pending.maxPoints,
+  });
+  store.save();
+  pendingAbiTasks.delete(req.params.taskId);
+
+  res.json({ points, maxPoints: pending.maxPoints, feedback: graded.feedback || '', modelSolution: pending.modelSolution });
 }));
 
 // ---------- Heute-Ansicht (über alle Klausuren) ----------

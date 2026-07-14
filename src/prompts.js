@@ -184,6 +184,76 @@ Lernmaterialien zur Klausur (primäre Quelle):
 ${topicMaterial(exam, topic)}`;
 }
 
+// ---------- Abi-Trainer (STARK-Verlag-Stil, BW-Punkteschema 0-15) ----------
+
+const ABI_SUBJECT_GUIDANCE = {
+  Mathe: 'Eine anspruchsvolle Analysis-, Analytische-Geometrie- oder Stochastik-Aufgabe im Stil des baden-württembergischen Mathematik-Abiturs (Leistungsfach), mit mehreren Teilaufgaben (a, b, c, …), die einen vollständigen Rechenweg erfordern.',
+  Englisch: 'Eine Textanalyse- oder Textproduktionsaufgabe im Stil des baden-württembergischen Englisch-Abiturs (Leistungsfach): ein kurzer Ausgangstext (falls kein passendes Material hochgeladen wurde, einen sinnvollen kurzen Text selbst verfassen) plus 1-2 Teilaufgaben zu comprehension, analysis und comment/creative writing.',
+  Sport: 'Eine Sporttheorie-Aufgabe im Stil des baden-württembergischen Sport-Abiturs (Leistungsfach, schriftlicher Teil): Trainingslehre, Bewegungslehre, Anatomie/Physiologie oder Sportbiologie, mit mehreren Teilaufgaben, die Fachwissen und Transferleistung verlangen (kein praktisch-motorischer Teil, da rein schriftlich bearbeitet).',
+};
+
+function abiMaterialsText(materials) {
+  const parts = (materials || [])
+    .filter((m) => m.text && m.text.trim())
+    .map((m) => `### Quelle: ${m.originalName}\n${m.text.trim()}`);
+  let combined = parts.join('\n\n');
+  if (combined.length > MAX_MATERIAL_CHARS) {
+    combined = combined.slice(0, MAX_MATERIAL_CHARS) + '\n\n[... Material gekürzt ...]';
+  }
+  return combined || '(Keine hochgeladenen Altklausuren – orientiere dich am offiziellen baden-württembergischen Bildungsplan und typischen Abiturformaten.)';
+}
+
+function abiTaskPrompt(subject, materials, history) {
+  const recent = (history || []).slice(-5).map((h) => `- ${h.date}: ${h.points}/${h.maxPoints} Punkte – "${h.taskSummary}"`).join('\n');
+
+  return {
+    system:
+      'Du bist Fachlehrer:in und Abiturkorrektor:in in Baden-Württemberg. Du erstellst realistische Abiturprüfungsaufgaben auf Leistungsfach-Niveau samt Musterlösung. Du antwortest ausschließlich mit gültigem JSON, ohne Markdown-Codezäune und ohne Text davor oder danach. Alle Texte im JSON sind auf Deutsch (englische Aufgabentexte im Fach Englisch bleiben auf Englisch).',
+    content: `Erstelle GENAU EINE Abiturprüfungsaufgabe für das Leistungsfach ${subject} (Baden-Württemberg).
+
+${ABI_SUBJECT_GUIDANCE[subject]}
+
+Hochgeladene Altklausuren/Materialien als Stil- und Themenvorlage:
+${abiMaterialsText(materials)}
+
+${recent ? `Bisherige Trainingshistorie (variiere Thema/Schwerpunkt gegenüber diesen letzten Aufgaben):\n${recent}` : 'Dies ist die erste Trainingsaufgabe.'}
+
+Die Aufgabe wird mit maximal 15 Punkten (BW-Punkteschema) bewertet. Erstelle außerdem eine Musterlösung, die exakt zeigt, wie eine Antwort auf 13-15 Punkte-Niveau aussieht (vollständig, präzise, mit allen erwarteten Lösungsschritten bzw. Bewertungskriterien).
+
+Antworte mit genau diesem JSON-Schema:
+{
+  "taskSummary": "3-6 Wörter Kurzbezeichnung des Themas, z.B. 'Extremwertaufgabe Analysis'",
+  "task": "Der vollständige Aufgabentext inkl. aller Teilaufgaben, ggf. mit Materialangabe/Text bei Englisch",
+  "modelSolution": "Die vollständige Musterlösung auf 13-15 Punkte-Niveau",
+  "maxPoints": 15
+}`,
+    maxTokens: 4096,
+  };
+}
+
+function abiGradePrompt(subject, task, modelSolution, userAnswer) {
+  return {
+    system:
+      'Du bist Abiturkorrektor:in in Baden-Württemberg und bewertest nach dem BW-Punkteschema (0-15 Punkte) fair, aber nach denselben Maßstäben wie im echten Abitur. Du antwortest ausschließlich mit gültigem JSON ohne Markdown-Codezäune.',
+    content: `Bewerte die folgende Schülerantwort auf die Abituraufgabe (Fach: ${subject}).
+
+Aufgabe:
+${task}
+
+Musterlösung (13-15 Punkte-Niveau):
+${modelSolution}
+
+Antwort der Lernenden:
+${userAnswer || '(keine Antwort abgegeben)'}
+
+Vergib eine Punktzahl von 0 bis 15 gemäß BW-Punkteschema, orientiert an fachlicher Richtigkeit, Vollständigkeit und Darstellungsqualität im Vergleich zur Musterlösung. Gib konstruktives, konkretes Feedback (was war gut, was hat gefehlt).
+
+Antworte mit genau diesem JSON-Schema:
+{"points": 11, "maxPoints": 15, "feedback": "3-6 Sätze konstruktives, konkretes Feedback"}`,
+    maxTokens: 2048,
+  };
+}
+
 function imageExtractPrompt() {
   return 'Extrahiere den kompletten Lerninhalt aus diesem Bild (z.B. Notizen, Folie, Tafelbild, Buchseite). Gib den Text strukturiert und vollständig auf Deutsch wieder. Beschreibe Diagramme/Abbildungen kurz in eckigen Klammern. Gib nur den extrahierten Inhalt zurück, keine Einleitung.';
 }
@@ -197,4 +267,6 @@ module.exports = {
   chatSystem,
   imageExtractPrompt,
   memorySummary,
+  abiTaskPrompt,
+  abiGradePrompt,
 };

@@ -10,10 +10,13 @@ function ensureDirs() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
+const ABI_SUBJECTS = ['Mathe', 'Englisch', 'Sport'];
+
 function defaultDb() {
   return {
     settings: { apiKey: '', model: '' },
     exams: [],
+    abiTrainer: {},
   };
 }
 
@@ -29,7 +32,17 @@ function load() {
   }
   if (!db.settings) db.settings = { apiKey: '', model: '' };
   if (!Array.isArray(db.exams)) db.exams = [];
+  if (!db.abiTrainer) db.abiTrainer = {};
   return db;
+}
+
+// Legt den Bereich für ein Leistungsfach bei Bedarf an (Mathe/Englisch/Sport).
+function getAbiSubject(name) {
+  const d = load();
+  if (!d.abiTrainer[name]) {
+    d.abiTrainer[name] = { materials: [], taskHistory: [] };
+  }
+  return d.abiTrainer[name];
 }
 
 function save() {
@@ -51,4 +64,4 @@ function getTopic(exam, topicId) {
   return (exam.topics || []).find((t) => t.id === topicId) || null;
 }
 
-module.exports = { load, save, uid, getExam, getTopic, UPLOAD_DIR };
+module.exports = { load, save, uid, getExam, getTopic, getAbiSubject, ABI_SUBJECTS, UPLOAD_DIR };
