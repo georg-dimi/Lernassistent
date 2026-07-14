@@ -214,12 +214,12 @@ async function renderHome() {
          <a class="btn primary" href="#/neu">➕ Erste Klausur anlegen</a></div>`;
 
   view.innerHTML = `
+    ${abiturDashboardHtml(state.exams)}
     <div class="page-head">
       <h1>Heute</h1>
       <div class="sub">${fmtDateLong(today.today)}</div>
     </div>
     ${keyNotice}
-    ${state.exams.length ? abiturDashboardHtml(state.exams) : ''}
     ${state.exams.length ? `
       <div class="card"><h2>📅 Heute auf dem Plan</h2>${sessionsHtml}</div>
       <div class="card"><h2>🧠 Gedächtnis-Auffrischung</h2>${reviewsHtml}</div>
@@ -301,23 +301,30 @@ function abiturDashboardHtml(exams) {
   const upcoming = exams.filter((e) => e.daysLeft >= 0).sort((a, b) => a.daysLeft - b.daysLeft)[0];
 
   return `
-    <div class="card abi-dash">
-      <h2>🎓 Abitur 1.3 Dashboard</h2>
+    <div class="card abi-dash abi-hero">
+      <div class="abi-hero-head">
+        <div class="abi-hero-emoji">🎓</div>
+        <div>
+          <div class="abi-hero-kicker">Mein Ziel</div>
+          <h2 class="abi-hero-title">Abitur mit 1,3</h2>
+        </div>
+      </div>
       <div class="grid cols-3 abi-milestones">
         <div class="abi-tile">
           <div class="abi-num">${overallMastery}%</div>
           <div class="abi-label">Ø Beherrschung gesamt</div>
         </div>
         <div class="abi-tile">
-          <div class="abi-num">${withPlan.length}/${exams.length}</div>
+          <div class="abi-num">${withPlan.length}/${exams.length || 0}</div>
           <div class="abi-label">Klausuren mit Lernplan</div>
         </div>
         <div class="abi-tile">
           <div class="abi-num">${upcoming ? (upcoming.daysLeft === 0 ? '🔥' : upcoming.daysLeft) : '–'}</div>
-          <div class="abi-label">${upcoming ? `Tage bis „${esc(upcoming.title)}"` : 'Keine Klausur geplant'}</div>
+          <div class="abi-label">${upcoming ? `Tage bis „${esc(upcoming.title)}"` : 'Noch keine Klausur geplant'}</div>
         </div>
       </div>
       <div class="lf-list">${subjectRows}</div>
+      ${exams.length === 0 ? '<p class="meta abi-hint">Lege deine erste Klausur an, um deinen Fortschritt hier zu sehen. 👇</p>' : ''}
     </div>`;
 }
 
