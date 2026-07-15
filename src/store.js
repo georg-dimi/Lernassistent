@@ -16,9 +16,14 @@ function ensureDirs() {
 
 const ABI_SUBJECTS = ['Mathe', 'Englisch', 'Sport'];
 
+const DEFAULT_SETTINGS = {
+  apiKey: '', model: '', voyageApiKey: '',
+  untisSchool: '', untisServer: '', untisUsername: '', untisPassword: '',
+};
+
 function defaultDb() {
   return {
-    settings: { apiKey: '', model: '', voyageApiKey: '' },
+    settings: { ...DEFAULT_SETTINGS },
     exams: [],
     abiTrainer: {},
   };
@@ -34,8 +39,10 @@ function load() {
   } catch {
     db = defaultDb();
   }
-  if (!db.settings) db.settings = { apiKey: '', model: '', voyageApiKey: '' };
-  if (db.settings.voyageApiKey === undefined) db.settings.voyageApiKey = '';
+  if (!db.settings) db.settings = { ...DEFAULT_SETTINGS };
+  for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    if (db.settings[key] === undefined) db.settings[key] = DEFAULT_SETTINGS[key];
+  }
   if (!Array.isArray(db.exams)) db.exams = [];
   if (!db.abiTrainer) db.abiTrainer = {};
   return db;

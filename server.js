@@ -10,6 +10,7 @@ const claude = require('./src/claude');
 const prompts = require('./src/prompts');
 const rag = require('./src/rag');
 const voyage = require('./src/voyage');
+const untis = require('./src/untis');
 
 const app = express();
 
@@ -163,6 +164,12 @@ app.get('/api/state', (req, res) => {
   res.json({
     hasApiKey: claude.hasKey(),
     hasVoyageKey: voyage.hasKey(),
+    hasUntis: untis.hasCredentials(),
+    // Nicht-sensible Untis-Felder werden zurückgegeben, damit das Formular
+    // vorausgefüllt bleibt (das Passwort selbst nie).
+    untisServer: db.settings.untisServer,
+    untisSchool: db.settings.untisSchool,
+    untisUsername: db.settings.untisUsername,
     model: claude.model(),
     defaultModel: claude.DEFAULT_MODEL,
     exams: db.exams.map(examSummary),
@@ -175,8 +182,18 @@ app.post('/api/settings', (req, res) => {
   if (typeof req.body.apiKey === 'string') db.settings.apiKey = req.body.apiKey.trim();
   if (typeof req.body.model === 'string') db.settings.model = req.body.model.trim();
   if (typeof req.body.voyageApiKey === 'string') db.settings.voyageApiKey = req.body.voyageApiKey.trim();
+  if (typeof req.body.untisSchool === 'string') db.settings.untisSchool = req.body.untisSchool.trim();
+  if (typeof req.body.untisServer === 'string') db.settings.untisServer = req.body.untisServer.trim();
+  if (typeof req.body.untisUsername === 'string') db.settings.untisUsername = req.body.untisUsername.trim();
+  if (typeof req.body.untisPassword === 'string') db.settings.untisPassword = req.body.untisPassword.trim();
   store.save();
-  res.json({ ok: true, hasApiKey: claude.hasKey(), hasVoyageKey: voyage.hasKey(), model: claude.model() });
+  res.json({
+    ok: true,
+    hasApiKey: claude.hasKey(),
+    hasVoyageKey: voyage.hasKey(),
+    hasUntis: untis.hasCredentials(),
+    model: claude.model(),
+  });
 });
 
 // ---------- Klausuren ----------
@@ -691,6 +708,26 @@ app.get('/api/today', (req, res) => {
 
   res.json({ today, sessions, reviews });
 });
+
+// ---------- WebUntis (Hausaufgaben) ----------
+
+app.get('/api/untis/homework', asyncRoute(async (req, res) => {
+  const homework = await untis.getUpcomingHomework();
+  const db = store.load();
+
+  // Ordnet jeder Hausaufgabe (falls möglich) eine passende Klausur zu, damit
+  // direkt zu den entsprechenden Themen/Übungsaufgaben in der App verlinkt werden kann.
+  const enriched = homework.map((h) => {
+    const hs = (h.subject || '').toLowerCase();
+    const match = hs ? db.exams.find((e) => {
+      const es = (e.subject || '').toLowerCase();
+      return es && (es.includes(hs) || hs.includes(es));
+    }) : null;
+    return { ...h, examId: match?.id || null, examTitle: match?.title || null };
+  });
+
+  res.json({ homework: enriched });
+}));
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

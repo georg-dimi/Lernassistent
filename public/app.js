@@ -221,6 +221,7 @@ async function renderHome() {
       <div class="sub">${fmtDateLong(today.today)}</div>
     </div>
     ${keyNotice}
+    ${state.hasUntis ? `<div class="card"><h2>📅 Hausaufgaben (WebUntis)</h2><div id="untisHomework"><p class="meta">Wird geladen …</p></div></div>` : ''}
     ${state.exams.length ? `
       <div class="card"><h2>📅 Heute auf dem Plan</h2>${sessionsHtml}</div>
       <div class="card"><h2>🧠 Gedächtnis-Auffrischung</h2>${reviewsHtml}</div>
@@ -237,6 +238,30 @@ async function renderHome() {
       } catch (err) { toast(err.message, true); }
     });
   });
+
+  if (state.hasUntis) loadUntisHomework();
+}
+
+// Wird von renderHome() separat nachgeladen, damit ein langsamer/nicht erreichbarer
+// WebUntis-Server nicht die restliche Startseite blockiert.
+async function loadUntisHomework() {
+  const el = document.getElementById('untisHomework');
+  if (!el) return;
+  try {
+    const { homework } = await api('/api/untis/homework');
+    el.innerHTML = homework.length
+      ? homework.map((h) => `
+          <div class="session-item">
+            <div class="s-body">
+              <div class="s-title">${esc(h.subject || 'Allgemein')} <span class="meta">· fällig ${fmtDate(h.dueDate)}</span></div>
+              <div class="s-note">${esc(h.text)}${h.remark ? ` – ${esc(h.remark)}` : ''}</div>
+            </div>
+            ${h.examId ? `<a class="btn small primary" href="#/klausur/${h.examId}">Dazu üben →</a>` : ''}
+          </div>`).join('')
+      : '<p class="meta">Keine offenen Hausaufgaben. ✅</p>';
+  } catch (err) {
+    el.innerHTML = `<p class="meta">⚠️ Hausaufgaben konnten nicht geladen werden: ${esc(err.message)}</p>`;
+  }
 }
 
 function sessionItemHtml(s) {
@@ -1026,6 +1051,24 @@ function renderSettings() {
       </form>
     </div>
     <div class="card" style="max-width:560px">
+      <h3>📅 WebUntis (Hausaufgaben)</h3>
+      <p class="meta">Optional: verbinde deinen WebUntis-Schulaccount, damit deine Hausaufgaben auf der Startseite erscheinen – inklusive Verlinkung zu passenden Klausur-Themen, falls vorhanden. Nutzt eine inoffizielle Schnittstelle; deine Zugangsdaten werden nur lokal gespeichert.</p>
+      <form id="untisForm">
+        <label class="field"><span>Server</span>
+          <input type="text" name="untisServer" value="${esc(appState.untisServer || '')}" placeholder="z.B. borys.webuntis.com">
+          <div class="hint">Findest du in der URL, wenn du dich im Browser bei WebUntis einloggst.</div></label>
+        <label class="field"><span>Schule</span>
+          <input type="text" name="untisSchool" value="${esc(appState.untisSchool || '')}" placeholder="Name deiner Schule bei WebUntis"></label>
+        <label class="field"><span>Benutzername</span>
+          <input type="text" name="untisUsername" value="${esc(appState.untisUsername || '')}"></label>
+        <label class="field"><span>Passwort</span>
+          <input type="password" name="untisPassword" placeholder="${appState.hasUntis ? '••••••••  (hinterlegt)' : ''}">
+          <div class="hint">Leer lassen, um das vorhandene Passwort zu behalten.</div></label>
+        <button class="btn primary" type="submit" data-busy="Wird gespeichert …">💾 Speichern</button>
+        ${appState.hasUntis ? '<span class="badge ok" style="margin-left:10px">✓ Verbunden</span>' : ''}
+      </form>
+    </div>
+    <div class="card" style="max-width:560px">
       <h3>So funktioniert der Assistent</h3>
       <ol style="padding-left:20px;margin:0">
         <li><strong>Klausur ankündigen</strong> – Titel, Fach, Termin und tägliche Lernzeit angeben.</li>
@@ -1056,6 +1099,23 @@ function renderSettings() {
     if (!fd.get('voyageApiKey')) { toast('Kein neuer Schlüssel eingegeben.', true); return; }
     await withBusy(ev.target.querySelector('button'), async () => {
       await api('/api/settings', { method: 'POST', body: { voyageApiKey: fd.get('voyageApiKey') } });
+      toast('Einstellungen gespeichert. ✅');
+      await refreshState();
+      renderSettings();
+    });
+  });
+
+  document.getElementById('untisForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const body = {
+      untisServer: fd.get('untisServer') || '',
+      untisSchool: fd.get('untisSchool') || '',
+      untisUsername: fd.get('untisUsername') || '',
+    };
+    if (fd.get('untisPassword')) body.untisPassword = fd.get('untisPassword');
+    await withBusy(ev.target.querySelector('button'), async () => {
+      await api('/api/settings', { method: 'POST', body });
       toast('Einstellungen gespeichert. ✅');
       await refreshState();
       renderSettings();
