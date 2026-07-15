@@ -5,11 +5,18 @@
 const { WebUntis } = require('webuntis');
 const store = require('./store');
 
+// Nutzer:innen kopieren den Server oft direkt aus der Browser-Adresszeile
+// (z.B. "https://gb.webuntis.com/today") – die Bibliothek erwartet aber nur
+// den reinen Hostnamen und hängt "https://" selbst davor. Also robust normalisieren.
+function normalizeServer(raw) {
+  return String(raw || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+}
+
 function credentials() {
   const s = store.load().settings;
   return {
     school: s.untisSchool || '',
-    server: s.untisServer || '',
+    server: normalizeServer(s.untisServer),
     username: s.untisUsername || '',
     password: s.untisPassword || '',
   };
