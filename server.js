@@ -216,6 +216,7 @@ app.delete('/api/exams/:examId', (req, res) => {
   if (idx < 0) return res.status(404).json({ error: 'Klausur nicht gefunden.' });
   for (const m of db.exams[idx].materials || []) {
     if (m.storedName) fs.rm(path.join(store.UPLOAD_DIR, m.storedName), { force: true }, () => {});
+    store.deleteMaterialChunks(m.id);
   }
   db.exams.splice(idx, 1);
   store.save();
