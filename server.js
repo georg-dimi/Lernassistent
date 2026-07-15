@@ -35,9 +35,6 @@ const upload = multer({
   limits: { fileSize: 30 * 1024 * 1024, files: 20 },
 });
 
-// Spaced-Repetition-Intervalle in Tagen, abhängig von der Wiederholungsstufe.
-const REVIEW_INTERVALS = [1, 3, 7, 16];
-
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -99,6 +96,34 @@ function examSummary(exam) {
   };
 }
 
+// Spaced Repetition nach dem SM-2-Algorithmus (SuperMemo): der Wiederholungsabstand
+// wächst mit jeder guten Abfrage um den individuellen Leichtigkeitsfaktor (easeFactor)
+// des Themas, statt einer festen Intervall-Leiter zu folgen. Bei einer schwachen
+// Abfrage (< 60%) wird die Wiederholungsserie zurückgesetzt (Intervall wieder 1 Tag).
+function applySM2(topic, pct) {
+  const quality = Math.max(0, Math.min(5, Math.round(pct / 20))); // 0-100% -> Qualität 0-5
+  let ef = topic.easeFactor ?? 2.5;
+  let reps = topic.repetitions ?? 0;
+
+  ef = Math.max(1.3, ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+
+  let interval;
+  if (quality < 3) {
+    reps = 0;
+    interval = 1;
+  } else {
+    reps += 1;
+    if (reps === 1) interval = 1;
+    else if (reps === 2) interval = 6;
+    else interval = Math.round((topic.intervalDays || 6) * ef);
+  }
+
+  topic.easeFactor = Math.round(ef * 100) / 100;
+  topic.repetitions = reps;
+  topic.intervalDays = interval;
+  topic.nextReview = addDays(todayStr(), interval);
+}
+
 // Aktualisiert Beherrschung + nächsten Wiederholungstermin nach einer Abfrage.
 function applyQuizResult(exam, topic, score, total, kind) {
   const pct = total ? Math.round((score / total) * 100) : 0;
@@ -106,18 +131,13 @@ function applyQuizResult(exam, topic, score, total, kind) {
   topic.quizHistory = topic.quizHistory || [];
   topic.quizHistory.push({ date: todayStr(), score, total, kind });
 
-  if (pct >= 60) {
-    topic.reviewLevel = Math.min((topic.reviewLevel ?? -1) + 1, REVIEW_INTERVALS.length - 1);
-  } else {
-    topic.reviewLevel = 0;
-  }
-  topic.nextReview = addDays(todayStr(), REVIEW_INTERVALS[topic.reviewLevel]);
+  applySM2(topic, pct);
 
   exam.memory = exam.memory || [];
   exam.memory.push({
     date: todayStr(),
     topicId: topic.id,
-    summary: `${kind === 'flashcards' ? 'Karteikarten' : 'Quiz'} zu "${topic.name}": ${score}/${total} richtig (${pct}%).${pct < 60 ? ' Thema braucht Wiederholung.' : ''}`,
+    summary: `${kind === 'flashcards' ? 'Karteikarten' : 'Quiz'} zu "${topic.name}": ${score}/${total} richtig (${pct}%).${pct < 60 ? ' Thema braucht Wiederholung.' : ` Nächste Wiederholung in ${topic.intervalDays} Tag${topic.intervalDays === 1 ? '' : 'en'}.`}`,
   });
 }
 
@@ -295,7 +315,9 @@ app.post('/api/exams/:examId/plan', asyncRoute(async (req, res) => {
       lesson: old?.lesson || null,
       chat: old?.chat || [],
       quizHistory: old?.quizHistory || [],
-      reviewLevel: old?.reviewLevel,
+      easeFactor: old?.easeFactor ?? 2.5,
+      repetitions: old?.repetitions ?? 0,
+      intervalDays: old?.intervalDays ?? null,
       nextReview: old?.nextReview || null,
     };
     keyToId.set(t.key, topic.id);
@@ -348,7 +370,7 @@ app.post('/api/exams/:examId/topics/:topicId/lesson', asyncRoute(async (req, res
 
   const content = await claude.ask(prompts.lessonPrompt(exam, topic));
   topic.lesson = { content, createdAt: new Date().toISOString() };
-  if (!topic.nextReview) topic.nextReview = addDays(todayStr(), REVIEW_INTERVALS[0]);
+  if (!topic.nextReview) topic.nextReview = addDays(todayStr(), 1);
 
   exam.memory = exam.memory || [];
   exam.memory.push({
