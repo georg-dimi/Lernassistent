@@ -13,8 +13,16 @@ function materialsText(exam) {
   return combined || '(Keine Materialien vorhanden – nutze dein Fachwissen zum angegebenen Thema.)';
 }
 
-function topicMaterial(exam, topic) {
-  // Für Lektionen/Quiz: gesamtes Material mitgeben, Claude fokussiert auf das Thema.
+// Formatiert per RAG abgerufene Abschnitte im selben "### Quelle: X"-Stil wie materialsText().
+function ragContextText(chunks) {
+  return chunks.map((c) => `### Quelle: ${c.source}\n${c.text}`).join('\n\n');
+}
+
+// Für Lektionen/Quiz/Karteikarten: wenn per RAG passende Abschnitte gefunden wurden,
+// nur diese mitgeben (fokussierter, kein Kürzungsproblem bei großen Materialmengen).
+// Ohne RAG (kein Voyage-Key oder keine Treffer) wie bisher das gesamte Material.
+function topicMaterial(exam, topic, ragChunks) {
+  if (ragChunks && ragChunks.length) return ragContextText(ragChunks);
   return materialsText(exam);
 }
 
@@ -80,7 +88,7 @@ Antworte mit genau diesem JSON-Schema:
   };
 }
 
-function lessonPrompt(exam, topic) {
+function lessonPrompt(exam, topic, ragChunks) {
   return {
     system:
       'Du bist ein hervorragender Tutor. Du erklärst Stoff klar, strukturiert und einprägsam auf Deutsch, mit Beispielen, Merksätzen und Eselsbrücken. Du nutzt Markdown (Überschriften, Listen, **fett** für Schlüsselbegriffe).',
@@ -93,7 +101,7 @@ Was bereits gelernt wurde (knüpfe daran an, wo es passt):
 ${memorySummary(exam, { excludeTopicId: topic.id })}
 
 Lernmaterialien (nutze sie als primäre Quelle, fokussiere auf das genannte Thema):
-${topicMaterial(exam, topic)}
+${topicMaterial(exam, topic, ragChunks)}
 
 Aufbau der Lerneinheit:
 1. **Überblick & Lernziele** (was kann ich danach?)
@@ -105,7 +113,7 @@ Aufbau der Lerneinheit:
   };
 }
 
-function quizPrompt(exam, topic, { count = 6 } = {}) {
+function quizPrompt(exam, topic, { count = 6 } = {}, ragChunks) {
   return {
     system:
       'Du bist ein Prüfungsexperte und erstellst faire, lehrreiche Quizfragen auf Deutsch. Du antwortest ausschließlich mit gültigem JSON ohne Markdown-Codezäune.',
@@ -119,7 +127,7 @@ Bisheriger Lernstand: Beherrschung ${topic.mastery ?? 0}%. ${
     }
 
 Lernmaterialien (primäre Quelle, fokussiere auf das Thema):
-${topicMaterial(exam, topic)}
+${topicMaterial(exam, topic, ragChunks)}
 
 Mische die Fragetypen: "mc" (Multiple Choice, 4 Optionen), "truefalse" (Wahr/Falsch), "open" (offene Frage, 1-3 Sätze Antwort), "cloze" (Lückentext mit ___ als Lücke).
 
@@ -156,7 +164,7 @@ Antworte mit genau diesem JSON-Schema (gleiche Reihenfolge wie oben):
   };
 }
 
-function flashcardsPrompt(exam, topic, { count = 10 } = {}) {
+function flashcardsPrompt(exam, topic, { count = 10 } = {}, ragChunks) {
   return {
     system:
       'Du erstellst prägnante Karteikarten auf Deutsch. Vorderseite: kurze Frage/Begriff. Rückseite: knappe, korrekte Antwort. Du antwortest ausschließlich mit gültigem JSON ohne Markdown-Codezäune.',
@@ -165,7 +173,7 @@ function flashcardsPrompt(exam, topic, { count = 10 } = {}) {
 Themenbeschreibung: ${topic.description || '-'}
 
 Lernmaterialien (primäre Quelle):
-${topicMaterial(exam, topic)}
+${topicMaterial(exam, topic, ragChunks)}
 
 Antworte mit genau diesem JSON-Schema:
 {"cards": [{"front": "Frage/Begriff", "back": "Antwort"}]}`,
@@ -173,15 +181,18 @@ Antworte mit genau diesem JSON-Schema:
   };
 }
 
-function chatSystem(exam, topic) {
+function chatSystem(exam, topic, ragChunks) {
+  const citationNote = ragChunks && ragChunks.length
+    ? '\nWenn du eine Aussage direkt aus den Lernmaterialien belegst, nenne die Quelle (Dateiname) im Fließtext, z.B. "(Quelle: Skript_Analysis.pdf)", damit die Lernende nachschlagen kann.'
+    : '';
   return `Du bist ein geduldiger, freundlicher Tutor für die Klausur "${exam.title}" (${exam.subject || ''}), aktuelles Thema: "${topic.name}".
-Antworte auf Deutsch, klar und auf den Punkt. Nutze Markdown. Erkläre Schritt für Schritt, gib Beispiele, und stelle bei Bedarf eine Rückfrage, um Verständnis zu prüfen.
+Antworte auf Deutsch, klar und auf den Punkt. Nutze Markdown. Erkläre Schritt für Schritt, gib Beispiele, und stelle bei Bedarf eine Rückfrage, um Verständnis zu prüfen.${citationNote}
 
 Was die Lernende bereits gelernt hat (knüpfe daran an):
 ${memorySummary(exam)}
 
 Lernmaterialien zur Klausur (primäre Quelle):
-${topicMaterial(exam, topic)}`;
+${topicMaterial(exam, topic, ragChunks)}`;
 }
 
 // ---------- Abi-Trainer (STARK-Verlag-Stil, BW-Punkteschema 0-15) ----------

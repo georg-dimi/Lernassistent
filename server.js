@@ -8,6 +8,8 @@ const store = require('./src/store');
 const extract = require('./src/extract');
 const claude = require('./src/claude');
 const prompts = require('./src/prompts');
+const rag = require('./src/rag');
+const voyage = require('./src/voyage');
 
 const app = express();
 
@@ -52,6 +54,19 @@ function asyncRoute(fn) {
       res.status(err.status || 500).json({ error: err.message || 'Interner Fehler' });
     });
   };
+}
+
+// Holt per RAG die relevantesten Materialabschnitte für eine Anfrage. Optionale
+// Verbesserung: ohne Voyage-Key oder bei einem Fehler wird einfach null zurückgegeben,
+// die Prompts fallen dann automatisch auf das volle Material zurück (kein harter Fehler).
+async function tryRetrieve(materials, query) {
+  if (!rag.isAvailable(materials)) return null;
+  try {
+    return await rag.retrieve(materials, query);
+  } catch (err) {
+    console.error('RAG-Abruf fehlgeschlagen, nutze Volltext-Fallback:', err.message);
+    return null;
+  }
 }
 
 function requireExam(req) {
@@ -147,6 +162,7 @@ app.get('/api/state', (req, res) => {
   const db = store.load();
   res.json({
     hasApiKey: claude.hasKey(),
+    hasVoyageKey: voyage.hasKey(),
     model: claude.model(),
     defaultModel: claude.DEFAULT_MODEL,
     exams: db.exams.map(examSummary),
@@ -158,8 +174,9 @@ app.post('/api/settings', (req, res) => {
   const db = store.load();
   if (typeof req.body.apiKey === 'string') db.settings.apiKey = req.body.apiKey.trim();
   if (typeof req.body.model === 'string') db.settings.model = req.body.model.trim();
+  if (typeof req.body.voyageApiKey === 'string') db.settings.voyageApiKey = req.body.voyageApiKey.trim();
   store.save();
-  res.json({ ok: true, hasApiKey: claude.hasKey(), model: claude.model() });
+  res.json({ ok: true, hasApiKey: claude.hasKey(), hasVoyageKey: voyage.hasKey(), model: claude.model() });
 });
 
 // ---------- Klausuren ----------
@@ -271,6 +288,7 @@ app.delete('/api/exams/:examId/materials/:materialId', (req, res) => {
   if (idx < 0) return res.status(404).json({ error: 'Material nicht gefunden.' });
   const [m] = exam.materials.splice(idx, 1);
   if (m.storedName) fs.rm(path.join(store.UPLOAD_DIR, m.storedName), { force: true }, () => {});
+  store.deleteMaterialChunks(m.id);
   store.save();
   res.json({ ok: true });
 });
@@ -368,7 +386,8 @@ app.post('/api/exams/:examId/topics/:topicId/lesson', asyncRoute(async (req, res
   const topic = requireTopic(exam, req);
   await ensureMaterialsExtracted(exam);
 
-  const content = await claude.ask(prompts.lessonPrompt(exam, topic));
+  const ragChunks = await tryRetrieve(exam.materials, `${topic.name} ${topic.description || ''}`);
+  const content = await claude.ask(prompts.lessonPrompt(exam, topic, ragChunks));
   topic.lesson = { content, createdAt: new Date().toISOString() };
   if (!topic.nextReview) topic.nextReview = addDays(todayStr(), 1);
 
@@ -391,7 +410,8 @@ app.post('/api/exams/:examId/topics/:topicId/quiz', asyncRoute(async (req, res) 
   const topic = requireTopic(exam, req);
   const count = Math.min(Math.max(parseInt(req.body.count, 10) || 6, 3), 15);
 
-  const data = await claude.askJSON(prompts.quizPrompt(exam, topic, { count }));
+  const ragChunks = await tryRetrieve(exam.materials, `${topic.name} ${topic.description || ''}`);
+  const data = await claude.askJSON(prompts.quizPrompt(exam, topic, { count }, ragChunks));
   const questions = (data.questions || []).filter((q) => q && q.type && q.question);
   if (!questions.length) throw new Error('Quiz konnte nicht erstellt werden. Bitte erneut versuchen.');
 
@@ -464,7 +484,8 @@ app.post('/api/exams/:examId/topics/:topicId/flashcards', asyncRoute(async (req,
   const exam = requireExam(req);
   const topic = requireTopic(exam, req);
   const count = Math.min(Math.max(parseInt(req.body.count, 10) || 10, 4), 25);
-  const data = await claude.askJSON(prompts.flashcardsPrompt(exam, topic, { count }));
+  const ragChunks = await tryRetrieve(exam.materials, `${topic.name} ${topic.description || ''}`);
+  const data = await claude.askJSON(prompts.flashcardsPrompt(exam, topic, { count }, ragChunks));
   const cards = (data.cards || []).filter((c) => c && c.front && c.back);
   if (!cards.length) throw new Error('Karteikarten konnten nicht erstellt werden.');
   res.json({ cards });
@@ -493,8 +514,9 @@ app.post('/api/exams/:examId/topics/:topicId/chat', asyncRoute(async (req, res) 
   topic.chat = topic.chat || [];
   const history = topic.chat.slice(-20).map((m) => ({ role: m.role, content: m.content }));
 
+  const ragChunks = await tryRetrieve(exam.materials, message);
   const reply = await claude.ask({
-    system: prompts.chatSystem(exam, topic),
+    system: prompts.chatSystem(exam, topic, ragChunks),
     content: message,
     history,
     maxTokens: 4096,
@@ -575,6 +597,7 @@ app.delete('/api/abi-trainer/:subject/materials/:materialId', (req, res) => {
   if (idx < 0) return res.status(404).json({ error: 'Material nicht gefunden.' });
   const [m] = s.materials.splice(idx, 1);
   if (m.storedName) fs.rm(path.join(store.UPLOAD_DIR, m.storedName), { force: true }, () => {});
+  store.deleteMaterialChunks(m.id);
   store.save();
   res.json({ ok: true });
 });

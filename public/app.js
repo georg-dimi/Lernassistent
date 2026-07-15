@@ -1015,6 +1015,17 @@ function renderSettings() {
       </form>
     </div>
     <div class="card" style="max-width:560px">
+      <h3>🔎 Wissenssuche (RAG)</h3>
+      <p class="meta">Optional: mit einem Voyage-AI-Schlüssel durchsucht der Assistent deine hochgeladenen Materialien gezielt nach den relevantesten Abschnitten (statt alles auf einmal reinzukopieren) und kann im Chat die genaue Quelle nennen. Ohne Schlüssel funktioniert alles weiter wie bisher.</p>
+      <form id="voyageForm">
+        <label class="field"><span>Voyage-AI-API-Schlüssel</span>
+          <input type="password" name="voyageApiKey" placeholder="${appState.hasVoyageKey ? '••••••••  (Schlüssel ist hinterlegt)' : 'pa-…'}">
+          <div class="hint">Zu bekommen unter <a href="https://dashboard.voyageai.com/" target="_blank" rel="noopener">dashboard.voyageai.com</a>. Leer lassen, um den vorhandenen zu behalten.</div></label>
+        <button class="btn primary" type="submit" data-busy="Wird gespeichert …">💾 Speichern</button>
+        ${appState.hasVoyageKey ? '<span class="badge ok" style="margin-left:10px">✓ Schlüssel aktiv</span>' : ''}
+      </form>
+    </div>
+    <div class="card" style="max-width:560px">
       <h3>So funktioniert der Assistent</h3>
       <ol style="padding-left:20px;margin:0">
         <li><strong>Klausur ankündigen</strong> – Titel, Fach, Termin und tägliche Lernzeit angeben.</li>
@@ -1033,6 +1044,18 @@ function renderSettings() {
     body.model = fd.get('model') || '';
     await withBusy(ev.target.querySelector('button'), async () => {
       await api('/api/settings', { method: 'POST', body });
+      toast('Einstellungen gespeichert. ✅');
+      await refreshState();
+      renderSettings();
+    });
+  });
+
+  document.getElementById('voyageForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    if (!fd.get('voyageApiKey')) { toast('Kein neuer Schlüssel eingegeben.', true); return; }
+    await withBusy(ev.target.querySelector('button'), async () => {
+      await api('/api/settings', { method: 'POST', body: { voyageApiKey: fd.get('voyageApiKey') } });
       toast('Einstellungen gespeichert. ✅');
       await refreshState();
       renderSettings();
